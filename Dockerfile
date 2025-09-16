@@ -1,36 +1,26 @@
-FROM node:16-alpine
+# Dockerfile
+FROM python:3.10-slim
 
-ARG N8N_VERSION
+ENV PYTHONUNBUFFERED=1
 
-RUN if [ -z "$N8N_VERSION" ] ; then echo "The N8N_VERSION argument is missing!" ; exit 1; fi
+WORKDIR /app
 
-# Update everything and install needed dependencies
-RUN apk add --update graphicsmagick tzdata git tini su-exec
+# system deps (ffmpeg)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg gcc git && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set a custom user to not have n8n run as root
-USER root
+# yt-dlp install
+RUN pip install --no-cache-dir yt-dlp
 
-# Install n8n and the packages it needs to build it correctly.
-RUN apk --update add --virtual build-dependencies python3 build-base ca-certificates && \
-	npm config set python "$(which python3)" && \
-	npm_config_user=root npm install -g full-icu n8n@${N8N_VERSION} && \
-	apk del build-dependencies \
-	&& rm -rf /root /tmp/* /var/cache/apk/* && mkdir /root;
+# python deps
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
+# app
+COPY . .
 
-# Install fonts
-RUN apk --no-cache add --virtual fonts msttcorefonts-installer fontconfig && \
-	update-ms-fonts && \
-	fc-cache -f && \
-	apk del fonts && \
-	find  /usr/share/fonts/truetype/msttcorefonts/ -type l -exec unlink {} \; \
-	&& rm -rf /root /tmp/* /var/cache/apk/* && mkdir /root
+# Render provides PORT env var; fallback to 10000
+ENV PORT=10000
 
-ENV NODE_ICU_DATA /usr/local/lib/node_modules/full-icu
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT}"]
 
-WORKDIR /data
-
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-ENTRYPOINT ["tini", "--", "/docker-entrypoint.sh"]
-
-EXPOSE 5678/tcp
